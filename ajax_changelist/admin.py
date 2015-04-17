@@ -25,14 +25,25 @@ class AjaxModelFormView(View):
     """ Handles AJAX updates of a single field on an object
         (You likely don't need to use this directly as the admin
         registers a URL for it itself.)
+
+        'post_callback' is a generic function that will be called
+        after the form has been processed.
+        The goal of the 'post_callback' function is to do some
+        extra work with the instance processed by the form.
+        Hence, 'post_callback' MUST be defined to accept ONLY 2 args:
+
+            - self
+            - the instance processed by the form
     """
 
     model = None
     valid_fields = None
+    post_callback = None
 
     def __init__(self, model, valid_fields, **kwargs):
         self.model = model
         self.valid_fields = valid_fields
+        self.post_callback = kwargs.get('post_callback', None)
 
     def post(self, request, object_id, *args, **kwargs):
         if not request.user or not request.user.is_staff:
@@ -58,6 +69,9 @@ class AjaxModelFormView(View):
 
         new_value = get_printable_field_value(instance, fieldname)
 
+        if self.post_callback:
+            self.post_callback(instance)
+
         return http.HttpResponse(new_value)
 
 
@@ -72,6 +86,11 @@ class AjaxModelAdmin(admin.ModelAdmin):
 
         if not hasattr(self, 'ajax_list_display'):
             self.ajax_list_display = []
+
+        # 'post_callback' (if it's used) must be defined as one of the options
+        # on the AjaxModelAdmin subclass
+        if not hasattr(self, 'post_callback'):
+            self.post_callback = None
 
         self.list_display = list(self.list_display)
         self.list_display = self.list_display + map(lambda name: HANDLER_NAME_TPL % name,
@@ -93,7 +112,8 @@ class AjaxModelAdmin(admin.ModelAdmin):
         list_urls = patterns('',
                 (r'^(?P<object_id>\d+)$',
                  AjaxModelFormView.as_view(model=self.model,
-                                           valid_fields=self.ajax_list_display)))
+                                           valid_fields=self.ajax_list_display,
+                                            post_callback=self.post_callback)))
         return list_urls + urls
 
     def _get_field_handler(self, fieldname):
